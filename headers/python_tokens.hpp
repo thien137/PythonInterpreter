@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <deque>
 #include <list>
 #include <limits>
 #include <sstream>
@@ -9,7 +10,7 @@
 std::list<std::string> split(std::string);
 
 enum class TokenID : char {
-    Identifier, Number, String, Operator, Punctuation, WhiteSpace, Comment, End
+    Identifier, Number, String, Operator, Punctuation, WhiteSpace, Comment, End, EndFile
 };
 
 // Likely To Change
@@ -30,10 +31,10 @@ class TokenStream {
 
         std::istream* input;
         bool owner;
-        std::vector<Token> current;
+        std::deque<Token> line_buf;
         
         // private helpers
-        const std::vector<Token>& tokenize_next_line(bool);
+        const std::deque<Token>& tokenize_next_line(bool);
         std::string get_string(std::stringstream&, const char delimiter);
         std::string get_comment(std::stringstream&, const char start);
         std::string get_whitespace(std::stringstream&, const char start);
@@ -43,6 +44,7 @@ class TokenStream {
         TokenStream(std::istream* s) : input{s}, owner{true} {*input >> std::noskipws;}
         ~TokenStream() {close();}
 
-        const std::vector<Token>& peek() {return current;};
-        std::vector<Token>& get() {std::vector<Token> temp = current; tokenize_next_line(false); return temp;}
+        void put_back(Token& t) {line_buf.push_front(t);}
+        const Token& peek();
+        Token& get();
 };

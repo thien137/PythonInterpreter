@@ -2,31 +2,21 @@
 
 #include <iostream>
 #include <exception>
-#include <csignal>
-#include <string>
-#include "headers/python_exceptions.h"
-#include "headers/python_tokens.h"
+#include <limits>
+#include "headers/python_parser.hpp"
+#include "headers/python_tokens.hpp"
+#include "headers/python_exceptions.hpp"
 
 int main(int argc, char *argv[]) {
-    std::signal(SIGINT, keyboard_interrupt_handler);
     TokenStream ts {std::cin};
+    Parser p {ts};
     while (true) {
-        std::cout << ">>> ";
-        for (const Token& t : ts.tokenize_next_line(false)) {
-            switch (t.id) {
-                case TokenID::Operator:
-                case TokenID::String:
-                case TokenID::WhiteSpace:
-                case TokenID::Punctuation:
-                case TokenID::Identifier:
-                case TokenID::Comment:
-                    std::cout << t.string_value << std::endl;
-                    break;
-                case TokenID::Number:
-                    std::cout << t.double_value << std::endl;
-                    break;
-            }
+        try {
+            std::unique_ptr<Node> parse_tree = p.parse(false);
+            parse_tree->print();
         }
+        catch (SyntaxError& e) {
+            std::cout << e.what() << std::endl;
+        } 
     }
-    return 0;
 }

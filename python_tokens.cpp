@@ -1,10 +1,31 @@
-#include "headers/python_tokens.h"
+#include "headers/python_tokens.hpp"
+
+const Token& TokenStream::peek() {
+    if (!line_buf.empty()) {
+        return line_buf.front();
+    }
+    else {
+        tokenize_next_line(false);
+        return peek();
+    }
+}
+Token& TokenStream::get() {
+    if (!line_buf.empty()) {
+        Token& temp = line_buf.front();
+        line_buf.pop_front();
+        return temp;
+    }
+    else {
+        tokenize_next_line(false);
+        return get();
+    }
+}
 
 std::string TokenStream::get_string(std::stringstream& in, const char delimiter) {
     // After we get an open '"'
     std::string result {delimiter};
     char pilot;
-    while (in.peek() != delimiter and in.peek() != EOF) {
+    while ((in.peek() != delimiter) and (in.peek() != EOF)) {
         in.get(pilot);
         result += pilot;
     }
@@ -41,13 +62,15 @@ std::string TokenStream::get_whitespace(std::stringstream& in, const char start)
     return result;
 }
 
-const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
+const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
     // Tokenize a line and return list of tokens
-    if (!continuation) current.clear();
+    if (!continuation) line_buf.clear();
 
     std::string line = "";
     std::getline(*input, line);
-
+    if (line.empty()) 
+        line_buf.push_back({TokenID::EndFile});
+        
     std::stringstream line_stream(line);
     char pilot;
     std::string string_result = "";
@@ -57,18 +80,18 @@ const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
         switch (pilot) {
             // End of Python Line
             case '\n':
-                current.push_back({TokenID::End});
+                line_buf.push_back({TokenID::End});
                 break;
             // Comment:
             case '#':
                 string_result = get_comment(line_stream, pilot);
-                current.push_back({TokenID::Comment, string_result});
+                line_buf.push_back({TokenID::Comment, string_result});
                 break;
             // Whitespace
             case '\t':
             case ' ':
                 string_result = get_whitespace(line_stream, pilot);
-                current.push_back({TokenID::WhiteSpace, string_result});
+                line_buf.push_back({TokenID::WhiteSpace, string_result});
                 break;
             // Operators
             case '*':
@@ -91,13 +114,13 @@ const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
                     string_result += pilot;
                     line_stream.get(pilot);
                 }
-                current.push_back({TokenID::Operator, string_result});
+                line_buf.push_back({TokenID::Operator, string_result});
                 break;
             // Punctuation
             case '\'':
             case '"':
                 string_result = get_string(line_stream, pilot);
-                current.push_back({TokenID::String, string_result});
+                line_buf.push_back({TokenID::String, string_result});
                 break;
             case '(':
             case ')':
@@ -109,7 +132,7 @@ const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case ',':
             case ':':
                 string_result += pilot;
-                current.push_back({TokenID::Punctuation, string_result});
+                line_buf.push_back({TokenID::Punctuation, string_result});
                 break;
             // Line Continuation
             case '\\':
@@ -119,7 +142,7 @@ const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '.':
                 if (!isdigit(line_stream.peek())) {
                     string_result += pilot;
-                    current.push_back({TokenID::Operator, string_result});
+                    line_buf.push_back({TokenID::Operator, string_result});
                     break;
                 }
                 else {
@@ -133,14 +156,14 @@ const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
                         line_stream.get(pilot);
                         string_result += pilot;
                     }
-                    current.push_back({TokenID::Identifier, string_result});
+                    line_buf.push_back({TokenID::Identifier, string_result});
                     break;
                 }
                 // Numbers
                 else if (pilot == '.' or isdigit(pilot)) {
                     line_stream.putback(pilot);
                     line_stream >> integral_result;
-                    current.push_back({TokenID::Number, integral_result});
+                    line_buf.push_back({TokenID::Number, integral_result});
                     break; 
                 }
                 else {
@@ -149,5 +172,5 @@ const std::vector<Token>& TokenStream::tokenize_next_line(bool continuation) {
         }
         string_result = "";
     }
-    return current;
+    return line_buf;
 }

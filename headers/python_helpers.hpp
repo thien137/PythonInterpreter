@@ -1,7 +1,7 @@
 #include <cmath>
 #include <string>
 #include <memory>
-#include "headers/python_tokens.h"
+#include "headers/python_tokens.hpp"
 
 bool is_atomic(Token t);
 bool is_true(Token t);

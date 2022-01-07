@@ -649,78 +649,84 @@
 #include <string>
 #include <vector>
 #include <stack>
-#include "python_tokens.h"
-#include "python_helpers.h"
+#include "python_tokens.hpp"
+#include "python_helpers.hpp"
+#include "python_exceptions.hpp"
 
 // AST 
 
-class Node {
-    protected:
-        std::vector<std::unique_ptr<Node>> block;  
-    public:
-        virtual std::unique_ptr<Node> add_node(std::unique_ptr<Node> n) {block.push_back(n); return n;}
-        virtual bool complete() {return true;}
-        void print(std::string);
+enum class NodeKind {
+    BLOCK, LITERAL, NAME, FUNCTION_CALL, OPERATOR_CALL, COLLECTION
 };
 
-class Statement : public Node {};
+struct Node {
+    NodeKind kind;
+    std::deque<std::unique_ptr<Node>> block;
 
-class IfStatement : public Statement {
-    private:
-        Expression* condition;
-    public:
-        Node* add_node(Node*);
-        bool complete() {return block.size() >= 1;}
-
-};
-
-class WhileStatement : public Statement {
-    private:
-        Expression* condition = nullptr;
-    public:
-        Node* add_node(Node*);
-        bool complete() {return condition and block.size() >= 1;}
-};
-
-class Expression : public Node {};
-
-class OperatorExpression : public Expression {
-    private:
-        std::unique_ptr<ReferenceExpression> op;
-    public:
-        OperatorExpression(std::unique_ptr<ReferenceExpression>& o) {op = move(o);}
-        OperatorExpression(std::string s) {op = std::make_unique<ReferenceExpression>(s);}
-
-        Node* add_node(Node*);
-        bool complete() {return block.size() >= 1;}
-};
-
-class ReferenceExpression : public Expression {
-    private:
-        std::string name;
-    public:
-        ReferenceExpression(std::string n) : name{n} {}
-
-        Node* add_node(Node*) {}
-        std::string evaluate() {return name;}
+    std::unique_ptr<Node> add_node(std::unique_ptr<Node>& n) {block.push_front(n); return std::make_unique<Node>(this);}
+    virtual void print(std::string = "") {};
 };
 
 template <class T>
-class LiteralExpression : public Expression {
-    private:
-        T value;
-    public:
-        LiteralExpression(T v) : value{v} {}
-
-        Node* add_node(Node*) {throw 10;}
-        T evaluate() {return value;}
+struct ASTNode : public Node {
+    T value;
+    void print(std::string = "");
 };
 
 class Parser {
     private:
         TokenStream ts;
 
-        std::unique_ptr<Node> parse_statement(std::stack<std::unique_ptr<Node>>&);
+        // helpers
+        std::unique_ptr<Node> expect_statement(bool);
+        std::unique_ptr<Node> expect_simplestatements(bool);
+        std::unique_ptr<Node> expect_compoundstatement(bool);
+        std::unique_ptr<Node> expect_expression(bool);
+        //std::unique_ptr<Node> expect_identifier(bool);
+        std::unique_ptr<Node> expect_sum(bool);
+        // sum:
+        //     | sum '+' term 
+        //     | sum '-' term 
+        //     | term
+        std::unique_ptr<Node> expect_term(bool);
+        // term:
+        //     | term '*' factor 
+        //     | term '/' factor 
+        //     | term '//' factor 
+        //     | term '%' factor 
+        //     | term '@' factor 
+        //     | factor
+        std::unique_ptr<Node> expect_factor(bool);
+        // factor:
+        //     | '+' factor 
+        //     | '-' factor 
+        //     | '~' factor 
+        //     | power
+        std::unique_ptr<Node> expect_power(bool);
+        // power:
+        //     | await_primary '**' factor 
+        //     | await_primary
+        std::unique_ptr<Node> expect_primary(bool);
+        // primary:
+        //     | primary '.' NAME 
+        //     | primary genexp 
+        //     | primary '(' [arguments] ')' 
+        //     | primary '[' slices ']' 
+        //     | atom
+        std::unique_ptr<Node> expect_atomic(bool);
+        // atom:
+        //     | NAME
+        //     | 'True' 
+        //     | 'False' 
+        //     | 'None' 
+        //     | strings
+        //     | NUMBER
+        //     | (tuple | group | genexp)
+        //     | (list | listcomp)
+        //     | (dict | set | dictcomp | setcomp)
+        //     | '...'
+
+        // order of operations
 
         // Python Model
         /* Python Keywords
@@ -734,6 +740,6 @@ class Parser {
     public:
         //Node& current() {return curr;}
         Parser(TokenStream& t) : ts{t} {}
-        std::unique_ptr<Node> parse();
+        std::unique_ptr<Node> parse(bool get);
 };
 
