@@ -1,4 +1,4 @@
-#include "headers/python_classes.hpp"
+#include "python_classes.hpp"
 
 class Procedure {};
 

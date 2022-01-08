@@ -1,0 +1,9 @@
+To-Do List:
+    General:
+        1. Write unit tests
+    Parser:
+        1. SyntaxErrors -> Exceptions in general
+        2. Parenthesized expressions
+        3. Lists/Tuples/Dictionaries
+    Evaluator:
+        1. TBD

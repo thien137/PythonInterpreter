@@ -1,28 +1,56 @@
-#include "headers/python_tokens.hpp"
+#include "python_tokens.hpp"
 
-const Token& TokenStream::peek() {
-    if (!line_buf.empty()) {
-        return line_buf.front();
-    }
-    else {
-        tokenize_next_line(false);
-        return peek();
+void TokenStream::print() {
+    std::cout << "Tokens (" << line_buf.size() << "):" << std::endl;
+    for (Token& t : line_buf) {
+        std::cout << "   ";
+        switch (t.id) {
+            case TokenID::WhiteSpace:
+                std::cout << "TokenID::WhiteSpace:  " << std::endl;
+                break;
+            case TokenID::Comment:
+                std::cout << "TokenID::Comment: " << t.string_value << std::endl;
+                break;
+            case TokenID::End:
+                std::cout << "TokenID::End: " << "\\n" << std::endl;
+                break;
+            case TokenID::Operator:
+                std::cout << "TokenID::Operator: " << t.string_value << std::endl;
+                break;
+            case TokenID::Punctuation:
+                std::cout << "TokenID::Punctuation: " << t.string_value << std::endl;
+                break;
+            case TokenID::String:
+                std::cout << "TokenID::String: " << t.string_value << std::endl;
+                break;
+            case TokenID::Identifier:
+                std::cout << "TokenID::Identifier: " << t.string_value << std::endl;
+                break;
+            case TokenID::Integer:
+                std::cout << "TokenID::Integer: " << t.integer_value << std::endl;
+                break;
+            case TokenID::Float:
+                std::cout << "TokenID::Float: " << t.double_value << std::endl;
+                break;
+        }
     }
 }
+
+const Token& TokenStream::peek() {
+    // Returns reference to token at the front of token_stream queue object without removing it
+    return line_buf.front();
+}
+
 Token& TokenStream::get() {
-    if (!line_buf.empty()) {
-        Token& temp = line_buf.front();
-        line_buf.pop_front();
-        return temp;
-    }
-    else {
-        tokenize_next_line(false);
-        return get();
-    }
+    // Gets (removes) token from token_stream queue object and returns it
+    Token& temp = line_buf.front();
+    line_buf.pop_front();
+    return temp;
 }
 
 std::string TokenStream::get_string(std::stringstream& in, const char delimiter) {
-    // After we get an open '"'
+    // Grabs string from input stream; keeps reading more lines until it reaches the appropriate
+    // delimiter
     std::string result {delimiter};
     char pilot;
     while ((in.peek() != delimiter) and (in.peek() != EOF)) {
@@ -41,7 +69,7 @@ std::string TokenStream::get_string(std::stringstream& in, const char delimiter)
 }
 
 std::string TokenStream::get_comment(std::stringstream& in, const char start) {
-    // After we get a '#'
+    // Grabs a '#' delimited from token stream
     std::string result {start};
     char pilot;
     while (in.get(pilot)) {
@@ -66,16 +94,22 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
     // Tokenize a line and return list of tokens
     if (!continuation) line_buf.clear();
 
+    // Grab a line from the input stream
     std::string line = "";
     std::getline(*input, line);
-    if (line.empty()) 
-        line_buf.push_back({TokenID::EndFile});
-        
+    line.push_back('\n'); // Manually add newline character    
+    
+    // Convert line into an input stream for ease of use
     std::stringstream line_stream(line);
+
+    // Get-character from stream
     char pilot;
+
+    // Binary Results
     std::string string_result = "";
     double integral_result;
 
+    // Grab characters from stream and organize them into tokens
     while (line_stream.get(pilot)) {
         switch (pilot) {
             // End of Python Line
@@ -102,7 +136,6 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
                     string_result += pilot;
                     line_stream.get(pilot);
                 }
-                break;
             case '+':
             case '-':
             case '&':
@@ -110,6 +143,7 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '%':
             case '^':
             case '=':
+                string_result += pilot;
                 if (line_stream.peek() == '=') {
                     string_result += pilot;
                     line_stream.get(pilot);
@@ -128,9 +162,9 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case ']':
             case '{':
             case '}':
-            case ';':
             case ',':
             case ':':
+            case ';':
                 string_result += pilot;
                 line_buf.push_back({TokenID::Punctuation, string_result});
                 break;
@@ -163,11 +197,11 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
                 else if (pilot == '.' or isdigit(pilot)) {
                     line_stream.putback(pilot);
                     line_stream >> integral_result;
-                    line_buf.push_back({TokenID::Number, integral_result});
-                    break; 
+                    line_buf.push_back({TokenID::Float, integral_result});
+                    break;
                 }
                 else {
-                    throw 20;
+                    throw SyntaxError();
                 }
         }
         string_result = "";
