@@ -2,8 +2,8 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "type": "cppbuild",
-            "label": "C/C++: cpp build active file",
+            "type": "shell",
+            "label": "Main",
             "command": "/usr/bin/g++",
             "args": [
                 "main.cpp",
@@ -15,16 +15,40 @@
                 "bin/main",
             ],
             "options": {
-                "cwd": "${fileDirname}"
+                "cwd": "${workspaceFolder}"
             },
             "problemMatcher": [
                 "$gcc"
             ],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
+            "group": "build",
             "detail": "compiler: /usr/bin/g++"
-        }
+        },
+        {
+            "type": "shell",
+            "label": "Test",
+            "command": "/usr/bin/g++",
+            "args": [
+                "tests/tests.cpp",
+                "-I../builds/googletest/googletest/include",
+                "-o",
+                "tests/tests",
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "compiler: /usr/bin/g++"
+        },
+        {
+            "label": "Tests",
+            "command": "./tests/tests",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "test"
+        },
     ]
 }
