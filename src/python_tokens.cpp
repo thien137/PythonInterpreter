@@ -93,6 +93,8 @@ std::string TokenStream::get_whitespace(std::stringstream& in, const char start)
 const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
     // Tokenize a line and return list of tokens
     if (!continuation) line_buf.clear();
+    // Update Curret Line number
+    current_line += 1;
 
     // Grab a line from the input stream
     std::string line = "";
@@ -104,6 +106,7 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
 
     // Get-character from stream
     char pilot;
+    int character_position = 0;
 
     // Binary Results
     std::string string_result = "";
@@ -111,21 +114,22 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
 
     // Grab characters from stream and organize them into tokens
     while (line_stream.get(pilot)) {
+        character_position += 1;
         switch (pilot) {
             // End of Python Line
             case '\n':
-                line_buf.push_back({TokenID::End});
+                line_buf.push_back({TokenID::End, string_result, character_position});
                 break;
             // Comment:
             case '#':
                 string_result = get_comment(line_stream, pilot);
-                line_buf.push_back({TokenID::Comment, string_result});
+                line_buf.push_back({TokenID::Comment, string_result, character_position});
                 break;
             // Whitespace
             case '\t':
             case ' ':
                 string_result = get_whitespace(line_stream, pilot);
-                line_buf.push_back({TokenID::WhiteSpace, string_result});
+                line_buf.push_back({TokenID::WhiteSpace, string_result, character_position});
                 break;
             // Operators
             case '*':
@@ -143,18 +147,19 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '%':
             case '^':
             case '=':
+            case ':':
                 string_result += pilot;
                 if (line_stream.peek() == '=') {
-                    string_result += pilot;
                     line_stream.get(pilot);
+                    string_result += pilot;
                 }
-                line_buf.push_back({TokenID::Operator, string_result});
+                line_buf.push_back({TokenID::Operator, string_result, character_position});
                 break;
             // Punctuation
             case '\'':
             case '"':
                 string_result = get_string(line_stream, pilot);
-                line_buf.push_back({TokenID::String, string_result});
+                line_buf.push_back({TokenID::String, string_result, character_position});
                 break;
             case '(':
             case ')':
@@ -163,10 +168,9 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '{':
             case '}':
             case ',':
-            case ':':
             case ';':
                 string_result += pilot;
-                line_buf.push_back({TokenID::Punctuation, string_result});
+                line_buf.push_back({TokenID::Punctuation, string_result, character_position});
                 break;
             // Line Continuation
             case '\\':
@@ -176,7 +180,7 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '.':
                 if (!isdigit(line_stream.peek())) {
                     string_result += pilot;
-                    line_buf.push_back({TokenID::Operator, string_result});
+                    line_buf.push_back({TokenID::Operator, string_result, character_position});
                     break;
                 }
                 else {
@@ -190,14 +194,14 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
                         line_stream.get(pilot);
                         string_result += pilot;
                     }
-                    line_buf.push_back({TokenID::Identifier, string_result});
+                    line_buf.push_back({TokenID::Identifier, string_result, character_position});
                     break;
                 }
                 // Numbers
                 else if (pilot == '.' or isdigit(pilot)) {
                     line_stream.putback(pilot);
                     line_stream >> integral_result;
-                    line_buf.push_back({TokenID::Float, integral_result});
+                    line_buf.push_back({TokenID::Float, integral_result, character_position});
                     break;
                 }
                 else {

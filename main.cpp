@@ -20,6 +20,7 @@ void interpret(std::istream& input, std::string input_name) {
 
 int main(int argc, char *argv[]) {
     switch (argc) {
+        // Python Interactive
         case 1: {
             interpret(std::cin, "<stdin>");
             break;

@@ -1,0 +1,13 @@
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/install/strip.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/install/local.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/install.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/list_install_components.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/rebuild_cache.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/edit_cache.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/CMakeFiles/PYTHONINTERPRETER.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/src/CMakeFiles/install/strip.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/src/CMakeFiles/install/local.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/src/CMakeFiles/install.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/src/CMakeFiles/list_install_components.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/src/CMakeFiles/rebuild_cache.dir
+/home/thien/Documents/Projects/PythonInterpreter/build/src/CMakeFiles/edit_cache.dir

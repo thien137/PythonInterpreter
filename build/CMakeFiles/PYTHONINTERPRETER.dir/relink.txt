@@ -1,0 +1,1 @@
+/usr/bin/c++     CMakeFiles/PYTHONINTERPRETER.dir/main.cpp.o  -o CMakeFiles/CMakeRelink.dir/PYTHONINTERPRETER   -L/home/thien/Documents/Projects/PythonInterpreter/src  -lsrc 

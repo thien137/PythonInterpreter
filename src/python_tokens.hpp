@@ -11,10 +11,10 @@ struct Token {
     std::string string_value;
     double double_value;
     int integer_value;
-
+    int position_in_line;
     Token() =default;
-    Token(TokenID i, std::string s): id{i}, string_value{s} {}
-    Token(TokenID i, double d): id{i} {if (id == TokenID::Integer) integer_value = d; else double_value = d;}
+    Token(TokenID i, std::string s, int c = 0): id{i}, string_value{s}, position_in_line{c} {}
+    Token(TokenID i, double d, int c = 0): id{i}, position_in_line{c} {if (id == TokenID::Integer) integer_value = d; else double_value = d;}
     Token(TokenID i): id{i} {}
 };
 //
@@ -24,6 +24,7 @@ class TokenStream {
         void close() {if (owner) delete input;};
 
         const std::string name;
+        int current_line = 0;
         std::istream* input;
         bool owner;
         std::deque<Token> line_buf {};
@@ -39,6 +40,7 @@ class TokenStream {
         ~TokenStream() {close();}
 
         void put_back(const Token& t) {line_buf.push_front(t);}
+        bool empty() {return line_buf.empty() or (line_buf.size() == 1 and line_buf.front().id == TokenID::End);}
         void print();
         const std::deque<Token>& tokenize_next_line(bool);
         const Token& peek();
