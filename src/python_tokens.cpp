@@ -153,6 +153,9 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
                     line_stream.get(pilot);
                     string_result += pilot;
                 }
+                else if (pilot == ':') {
+                    line_buf.push_back(TokenID::Punctuation, string_result, character_position);
+                }
                 line_buf.push_back({TokenID::Operator, string_result, character_position});
                 break;
             // Punctuation
@@ -169,6 +172,7 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '}':
             case ',':
             case ';':
+            case '_':
                 string_result += pilot;
                 line_buf.push_back({TokenID::Punctuation, string_result, character_position});
                 break;
@@ -180,7 +184,16 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
             case '.':
                 if (!isdigit(line_stream.peek())) {
                     string_result += pilot;
-                    line_buf.push_back({TokenID::Operator, string_result, character_position});
+                    // Check for ellipses '...'
+                    if (line_stream.peek() == '.') {
+                        line_stream.get(pilot);
+                        if (line_stream.peek() == '.') {
+                            line_stream.get(pilot);
+                            string_result += pilot; string_result += pilot;
+                        }
+                        else line_stream.putback(pilot);
+                    }
+                    line_buf.push_back({TokenID::Punctuation, string_result, character_position});
                     break;
                 }
                 else {

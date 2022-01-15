@@ -5,7 +5,7 @@
 // AST 
 
 enum class NodeKind {
-    BLOCK, LITERAL, COLLECTION, PAIR, COMPREHENSION, TUPLE, LIST, SET, DICT, NAME, FUNCTION_CALL, OPERATOR_CALL
+    BLOCK, LITERAL, COLLECTION, PAIR, COMPREHENSION, TUPLE, LIST, SET, DICT, NAME, FUNCTION_CALL, OPERATOR_CALL, ATTRIBUTE_CALL
 };
 
 struct Node {
@@ -14,8 +14,10 @@ struct Node {
     std::deque<std::unique_ptr<Node>> block {};
     Node(NodeKind k, Token t) : kind{k}, tok{t} {}
 
-    void add_node(std::unique_ptr<Node>&& n) {if (n != nullptr) block.push_front(move(n));}
-    void add_node(std::unique_ptr<Node>& n) {if (n != nullptr) block.push_front(move(n));}
+    void add_node_front(std::unique_ptr<Node>&& n) {if (n != nullptr) block.push_front(move(n));}
+    void add_node_front(std::unique_ptr<Node>& n) {if (n != nullptr) block.push_front(move(n));}
+    void add_node_back(std::unique_ptr<Node>&& n) {if (n != nullptr) block.push_back(move(n));}
+    void add_node_back(std::unique_ptr<Node>& n) {if (n != nullptr) block.push_back(move(n));}
     void print(std::string);
 };
 
@@ -26,9 +28,10 @@ struct Flag {
     bool right_restricted = false;
     bool oper_required = false;
     bool left_found = false;
+    bool once = false;
 
     Flag operator| (const Flag& other) {
-        return Flag{recursive or other.recursive, optional or other.optional, right_optional or other.right_optional, right_restricted or other.right_restricted, oper_required or other.oper_required, left_found or other.left_found};
+        return Flag{recursive or other.recursive, optional or other.optional, right_optional or other.right_optional, right_restricted or other.right_restricted, oper_required or other.oper_required, left_found or other.left_found, once or other.once};
     }
 };
 
@@ -117,7 +120,7 @@ class Parser {
         std::unique_ptr<Node> expect_import_name(bool, Flag = {});
         // import_name: 'import' dotted_as_names 
 
-        std::unique_ptr<Node> expect_import_name(bool, Flag = {});
+        std::unique_ptr<Node> expect_import_from(bool, Flag = {});
         // # note below: the ('.' | '...') is necessary because '...' is tokenized as ELLIPSIS
         // import_from:
         //     | 'from' ('.' | '...')* dotted_name 'import' import_from_targets 
@@ -133,7 +136,7 @@ class Parser {
         // import_from_as_names:
         //     | ','.import_from_as_name+ 
 
-        std::unique_ptr<Node> expect_import_from_as_names(bool, Flag = {});
+        std::unique_ptr<Node> expect_import_from_as_name(bool, Flag = {});
         // import_from_as_name:
         //     | NAME ['as' NAME ] 
 
@@ -254,16 +257,6 @@ class Parser {
         //     | 'True' 
         //     | 'False' 
 
-        std::unique_ptr<Node> expect_literal_expr(bool, Flag = {});
-        // # Literal expressions are used to restrict permitted mapping pattern keys
-        // literal_expr:
-        //     | signed_number !('+' | '-')
-        //     | complex_number
-        //     | strings
-        //     | 'None' 
-        //     | 'True' 
-        //     | 'False' 
-
         std::unique_ptr<Node> expect_complex_number(bool, Flag = {});
         // complex_number:
         //     | signed_real_number '+' imaginary_number 
@@ -350,7 +343,7 @@ class Parser {
         // items_pattern:
         //     | ','.key_value_pattern+
 
-        std::unique_ptr<Node> expect_items_pattern(bool, Flag = {});
+        std::unique_ptr<Node> expect_key_value_pattern(bool, Flag = {});
         // key_value_pattern:
         //     | (literal_expr | attr) ':' pattern 
 
@@ -864,6 +857,18 @@ class Parser {
         std::unique_ptr<Node> expect_name(bool, Flag = {});
         // NAME
 
+        std::unique_ptr<Node> expect_dedent(bool, Flag = {});
+        // DEDENT
+
+        std::unique_ptr<Node> expect_newline(bool, Flag = {});
+        // NEWLINE
+
+        std::unique_ptr<Node> expect_indent(bool, Flag = {});
+        // INDENT
+
+        std::unique_ptr<Node> expect_number(bool, Flag = {});
+        // NUMBER
+    
         // helpers for helpers
         
         //expect certain kinds of identifier tokens
@@ -874,7 +879,8 @@ class Parser {
                                             std::unique_ptr<Node> (Parser::*)(bool, Flag), 
                                             Flag = {});
         
-        std::unique_ptr<Node> expect_token_get(TokenID, std::string);
+        std::unique_ptr<Node> expect_token_get(bool, TokenID, std::string, Flag);
+        std::unique_ptr<Node> expect_token_get(bool, TokenID, std::initializer_list<std::string>, Flag); 
 
         bool expect_token(const Token&, TokenID, std::initializer_list<std::string>);
         bool expect_token(TokenID, std::string);
