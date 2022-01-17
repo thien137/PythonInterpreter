@@ -35,7 +35,7 @@ std::unique_ptr<Node> Parser::parse_next_line(bool get) {
     ts.tokenize_next_line(false);
     ts.print();
     auto tree = expect_statement(get);
-    if (!ts.empty()) throw SyntaxError();                                                                                                                                                                                                                                                                                                                                                                                                         
+    if (!ts.empty()) throw SyntaxError("expected (literally nothing)");                                                                                                                                                                                                                                                                                                                                                                                                         
     return tree;
 }
 
@@ -58,7 +58,7 @@ std::unique_ptr<Node> Parser::expect_statement(bool get, Flag flags) {
             case TokenID::End:
                 return nullptr;
             default:
-                throw SyntaxError();
+                throw SyntaxError("expected statement");
         }
     return nullptr;
 }
@@ -121,21 +121,25 @@ std::unique_ptr<Node> Parser::expect_augassign(bool get, Flag flags) {
     //     | '>>=' 
     //     | '**=' 
     //     | '//=' 
-    return expect_token_get(get, TokenID::Operator, {"+=", "-=", "*=", "@=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "**=", "//="}, flags);
+    return expect_token_get(get, TokenID::Operator, {"+=", "-=", "*=", "@=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "**=", "//="}, NodeKind::OPERATOR_CALL, flags);
 }
 
 std::unique_ptr<Node> Parser::expect_global_stmt(bool get, Flag flags) {
     // global_stmt: 'global' ','.NAME+
-    std::unique_ptr<Node> global_stmt = expect_token_get(get, TokenID::Identifier, "global", flags);
-    global_stmt->add_node_front(expect_helper(false, TokenID::Identifier, {","}, NodeKind::OPERATOR_CALL, &Parser::expect_name, &Parser::expect_name, flags));
-    return global_stmt;
+    if (std::unique_ptr<Node> global_stmt = expect_token_get(get, TokenID::Identifier, "global", NodeKind::KEYWORD_CALL, flags)) {
+        global_stmt->add_node_front(expect_helper(false, TokenID::Identifier, {","}, NodeKind::OPERATOR_CALL, &Parser::expect_name, &Parser::expect_name, flags));
+        return global_stmt;
+    }
+    else if (flags.optional) return nullptr; 
 }
 
 std::unique_ptr<Node> Parser::expect_nonlocal_stmt(bool get, Flag flags) {
     // nonlocal_stmt: 'nonlocal' ','.NAME+ 
-    std::unique_ptr<Node> nonlocal_stmt = expect_token_get(get, TokenID::Identifier, "nonlocal", flags);
-    nonlocal_stmt->add_node_front(expect_helper(false, TokenID::Identifier, {","}, NodeKind::OPERATOR_CALL, &Parser::expect_name, &Parser::expect_name, flags));
-    return nonlocal_stmt
+    if (std::unique_ptr<Node> nonlocal_stmt = expect_token_get(get, TokenID::Identifier, "nonlocal", NodeKind::KEYWORD_CALL, flags)) {
+        nonlocal_stmt->add_node_front(expect_helper(false, TokenID::Identifier, {","}, NodeKind::OPERATOR_CALL, &Parser::expect_name, &Parser::expect_name, flags));
+        return nonlocal_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_yield_stmt(bool get, Flag flags) {
@@ -145,35 +149,37 @@ std::unique_ptr<Node> Parser::expect_yield_stmt(bool get, Flag flags) {
 
 std::unique_ptr<Node> Parser::expect_assert_stmt(bool get, Flag flags) {
     // assert_stmt: 'assert' expression [',' expression ]
-    std::unique_ptr<Node> assert_stmt = expect_token_get(get, TokenID::Identifier, "assert", flags); 
-    std::unique_ptr<Node> expression = expect_expression(false, flags);
-    if (expect_token(TokenID::Punctuation, ",")) {
-        std::unique_ptr<Node> comma = expect_token_get(false, TokenID::Punctuation, ",", flags);
-        comma->add_node_front(expect_expression(false, flags));
-        comma->add_node_front(expression);
-        expression = move(comma);
+    if (std::unique_ptr<Node> assert_stmt = expect_token_get(get, TokenID::Identifier, "assert", NodeKind::KEYWORD_CALL, flags)) {
+        std::unique_ptr<Node> expression = expect_expression(false, flags);
+        if (std::unique_ptr<Node> comma = expect_token_get(false, TokenID::Punctuation, ",", NodeKind::COLLECTION, Flag{false, true} | flags)) {
+            comma->add_node_front(expect_expression(false, flags));
+            comma->add_node_front(expression);
+            expression = move(comma);
+        }
+        assert_stmt->add_node_front(expression);
+        return assert_stmt;
     }
-    assert_stmt->add_node_front(expression);
-    return assert_stmt;
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_del_stmt(bool get, Flag flags) {
     // del_stmt:
     //     | 'del' del_targets &(';' | NEWLINE)
-    std::unique_ptr<Node> del_stmt = expect_token_get(get, TokenID::Identifier, "del", flags);
-    del_stmt->add_node_back(expect_del_targets(false, flags));
-    if (!(expect_token(TokenID::Punctuation, ";") or expect_token(TokenID::End))) throw SyntaxError();
-    return del_stmt;
+    if (std::unique_ptr<Node> del_stmt = expect_token_get(get, TokenID::Identifier, "del", NodeKind::KEYWORD_CALL,flags)) {
+        del_stmt->add_node_back(expect_del_targets(false, flags));
+        if (!(expect_token(TokenID::Punctuation, ";") or expect_token(TokenID::End))) throw SyntaxError("did not expect ';' | NEWLINE");
+        return del_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
-std::unique_ptr<Node> Parser::import_stmt(bool get, Flag flags) {
+std::unique_ptr<Node> Parser::expect_import_stmt(bool get, Flag flags) {
     // import_stmt: import_name | import_from
-    std::unique_ptr<Node> import_stmt = expect_token_get(get, TokenID::Identifier, "import", flags);
-    if (expect_token(TokenID::Identifier, "from"))
-        import_stmt->add_node_front(expect_import_from(false, flags));
-    else
-        import_stmt->add_node_front(expect_import_from(false, flags));
-    return import_stmt;
+    if (std::unique_ptr<Node> import_stmt = expect_token_get(get, TokenID::Identifier, "import", NodeKind::KEYWORD_CALL, flags)) {
+        import_stmt->add_node_back(expect_import_name(get, Flag{false, true} | flags) or expect_import_from(get, flags));
+        return import_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_import_name(bool get, Flag flags) {
@@ -188,18 +194,20 @@ std::unique_ptr<Node> Parser::expect_import_from(bool get, Flag flags) {
     //     | 'from' ('.' | '...')* dotted_name 'import' import_from_targets 
     //     | 'from' ('.' | '...')+ 'import' import_from_targets 
     // Assumes that 'import' has been read, and 'from' is next
-    std::unique_ptr<Node> import_from = expect_token_get(get, TokenID::Identifier, "from", flags);
-    if (expect_token(TokenID::Punctuation, ".") or expect_token(TokenID::Punctuation, "...")) {
-        while(expect_token(TokenID::Punctuation, ".") or expect_token(TokenID::Punctuation, "...")) {
-            import_from->add_node_back(expect_token_get(false, TokenID::Punctuation, ".", Flag{false, true} | flags));
-            import_from ->add_node_back(expect_token_get(false, TokenID::Punctuation, "...", Flag{false, true} | flags));
+    if (std::unique_ptr<Node> import_from = expect_token_get(get, TokenID::Identifier, "from", NodeKind::KEYWORD_CALL, flags)) {
+        if (expect_token(TokenID::Punctuation, ".") or expect_token(TokenID::Punctuation, "...")) {
+            while(expect_token(TokenID::Punctuation, ".") or expect_token(TokenID::Punctuation, "...")) {
+                import_from->add_node_back(expect_token_get(false, TokenID::Punctuation, ".", NodeKind::LITERAL, Flag{false, true} | flags));
+                import_from ->add_node_back(expect_token_get(false, TokenID::Punctuation, "...", NodeKind::LITERAL, Flag{false, true} | flags));
+            }
         }
+        else import_from->add_node_back(expect_dotted_name(get, flags));
+        
+        import_from->add_node_back(expect_token_get(get, TokenID::Identifier, "import", NodeKind::KEYWORD_CALL, flags));
+        import_from->add_node_back(expect_import_from_targets(false, flags));
+        return import_from;
     }
-    else import_from->add_node_back(expect_dotted_name(get, flags));
-    
-    import_from->add_node_back(expect_token_get(get, TokenID::Identifier, "import", flags));
-    import_from->add_node_back(expect_import_from_targets(false, flags));
-    return import_from;
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_import_from_targets(bool get, Flag flags) {
@@ -213,16 +221,19 @@ std::unique_ptr<Node> Parser::expect_import_from_targets(bool get, Flag flags) {
         import_from_targets->add_node_front(expect_helper(true, TokenID::Punctuation, {","}, NodeKind::COLLECTION, &Parser::expect_import_from_as_names, &Parser::expect_import_from_as_names, flags));
         // Check for ')' delimiter
         if (!expect_token(TokenID::Punctuation, ")")) throw SyntaxError("expected ')'");
+
+        return import_from_targets;
     }
-    else if (expect_token(TokenID::Operator, "*")) {
-        import_from_targets = expect_token_get(get, TokenID::Operator, "*", flags);
-    }
-    else {
-        import_from_targets = expect_import_from_as_names(get, flags);
+    else if (import_from_targets = expect_import_from_as_names(get, Flag{false, true} | flags)) {
         // ',' next is illegal
         if (expect_token(TokenID::Punctuation, ",")) throw SyntaxError("did not expect ','"); 
+        
+        return import_from_targets;
     }
-    return import_from_targets;
+    else {
+        return expect_token_get(get, TokenID::Operator, "*", NodeKind::OPERATOR_CALL, flags);
+    }
+
 }
 
 std::unique_ptr<Node> Parser::expect_import_from_as_names(bool get, Flag flags) {
@@ -259,66 +270,81 @@ std::unique_ptr<Node> Parser::expect_if_stmt(bool get, Flag flags) {
     // if_stmt:
     //     | 'if' named_expression ':' block elif_stmt 
     //     | 'if' named_expression ':' block [else_block] 
-    std::unique_ptr<Node> if_stmt = expect_token_get(get, TokenID::Identifier, "if", flags);
-    if_stmt->add_node_back(expect_named_expression(false, flags));
-    expect_token_get(get, TokenID::Punctuation, ":", flags); // Formality
-    
-    std::unique_ptr<Node> elif_stmt = expect_elif_stmt(false, Flag{false, true} | flags);
-    if (elif_stmt != nullptr) if_stmt->add_node_back(elif_stmt);
-    else if_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+    if (std::unique_ptr<Node> if_stmt = expect_token_get(get, TokenID::Identifier, "if", NodeKind::KEYWORD_CALL, flags)) {
 
-    return if_stmt;
+        if_stmt->add_node_back(expect_named_expression(false, flags));
+        expect_token_get(get, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        
+        std::unique_ptr<Node> elif_stmt = expect_elif_stmt(false, Flag{false, true} | flags);
+        if (elif_stmt != nullptr) if_stmt->add_node_back(elif_stmt);
+        else if_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+
+        return if_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 std::unique_ptr<Node> Parser::expect_elif_stmt(bool get, Flag flags) {
     // elif_stmt:
     //     | 'elif' named_expression ':' block elif_stmt 
     //     | 'elif' named_expression ':' block [else_block] 
-    std::unique_ptr<Node> elif_stmt = expect_token_get(get, TokenID::Identifier, "elif", flags);
-    elif_stmt->add_node_back(expect_named_expression(false, flags));
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
+    if (std::unique_ptr<Node> elif_stmt = expect_token_get(get, TokenID::Identifier, "elif", NodeKind::KEYWORD_CALL, flags)) {
 
-    std::unique_ptr<Node> elif_stmt2 = expect_elif_stmt(false, Flag{false, true} | flags);
-    if (elif_stmt2 != nullptr) elif_stmt->add_node_back(elif_stmt2);
-    else elif_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+        elif_stmt->add_node_back(expect_named_expression(false, flags));
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
 
-    return elif_stmt;
+        if (std::unique_ptr<Node> elif_stmt2 = expect_elif_stmt(false, Flag{false, true} | flags)) {
+            elif_stmt->add_node_back(elif_stmt2);
+        }
+        else elif_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+
+        return elif_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_else_block(bool get, Flag flags) {
     // else_block:
     //     | 'else' ':' block
-    std::unique_ptr<Node> else_block = expect_token_get(get, TokenID::Identifier, "else", flags);
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    else_block->add_node_back(expect_block(false, flags));
+    if (std::unique_ptr<Node> else_block = expect_token_get(get, TokenID::Identifier, "else", NodeKind::KEYWORD_CALL, flags)) {
 
-    return else_block;
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        else_block->add_node_back(expect_block(false, flags));
+
+        return else_block;
+    }
 }
 
 std::unique_ptr<Node> Parser::expect_while_stmt(bool get, Flag flags) {
     // while_stmt:
     //     | 'while' named_expression ':' block [else_block] 
-    std::unique_ptr<Node> while_stmt = expect_token_get(get, TokenID::Identifier, "if", flags);
-    while_stmt->add_node_back(expect_named_expression(false, flags));
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    while_stmt->add_node_back(expect_block(false, flags));
-    while_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+    if (std::unique_ptr<Node> while_stmt = expect_token_get(get, TokenID::Identifier, "while", NodeKind::KEYWORD_CALL, flags)) {
 
-    return while_stmt;
+        while_stmt->add_node_back(expect_named_expression(false, flags));
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        while_stmt->add_node_back(expect_block(false, flags));
+        while_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+
+        return while_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_for_stmt(bool get, Flag flags) {
 // for_stmt:
 //     | 'for' star_targets 'in' ~ star_expressions ':' [TYPE_COMMENT] block [else_block] 
 //     | ASYNC 'for' star_targets 'in' ~ star_expressions ':' [TYPE_COMMENT] block [else_block]
-    std::unique_ptr<Node> for_stmt = expect_token_get(get, TokenID::Identifier, "for", flags);
-    for_stmt->add_node_back(expect_star_targets(false, flags));
-    expect_token_get(false, TokenID::Identifier, "in", flags); // Formality
-    for_stmt->add_node_back(expect_star_expressions(false, flags));
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    for_stmt->add_node_back(expect_block(false, flags));
-    for_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+    if (std::unique_ptr<Node> for_stmt = expect_token_get(get, TokenID::Identifier, "for", NodeKind::KEYWORD_CALL, flags)) {
 
-    return for_stmt;
+        for_stmt->add_node_back(expect_star_targets(false, flags));
+        expect_token_get(false, TokenID::Identifier, "in", NodeKind::FORMALITY, flags); // Formality
+        for_stmt->add_node_back(expect_star_expressions(false, flags));
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        for_stmt->add_node_back(expect_block(false, flags));
+        for_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+
+        return for_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_with_stmt(bool get, Flag flags) {
@@ -327,95 +353,113 @@ std::unique_ptr<Node> Parser::expect_with_stmt(bool get, Flag flags) {
     //     | 'with' ','.with_item+ ':' [TYPE_COMMENT] block 
     //     | ASYNC 'with' '(' ','.with_item+ ','? ')' ':' block 
     //     | ASYNC 'with' ','.with_item+ ':' [TYPE_COMMENT] block
-    std::unique_ptr<Node> with_stmt = expect_token_get(get, TokenID::Identifier, "with", flags);
-    if (expect_token(TokenID::Punctuation, "(")) {
-        std::unique_ptr<Node> items = std::make_unique<Node>(NodeKind::TUPLE, Token{TokenID::Punctuation, "()"});
-        items->add_node_front(expect_helper(true, TokenID::Punctuation, {","}, NodeKind::COLLECTION, &Parser::expect_with_item, &Parser::expect_with_item, flags));
-        // Check for ')' delimiter
-        if (!expect_token(TokenID::Punctuation, ")")) throw SyntaxError("expected ')'");
-    }
-    else {
-        with_stmt->add_node_back(expect_helper(false, TokenID::Punctuation, {","}, NodeKind::COLLECTION, &Parser::expect_with_item, &Parser::expect_with_item, Flag{false, false, true} | flags));
-    }
-    with_stmt->add_node_back(expect_token_get(true, TokenID::Operator, ":", flags));
-    with_stmt->add_node_back(expect_block(false, flags));
+    if (std::unique_ptr<Node> with_stmt = expect_token_get(get, TokenID::Identifier, "with", NodeKind::KEYWORD_CALL, flags)) {
 
-    return with_stmt;
+        if (expect_token(TokenID::Punctuation, "(")) {
+            std::unique_ptr<Node> items = std::make_unique<Node>(NodeKind::TUPLE, Token{TokenID::Punctuation, "()"});
+            items->add_node_front(expect_helper(true, TokenID::Punctuation, {","}, NodeKind::COLLECTION, &Parser::expect_with_item, &Parser::expect_with_item, flags));
+            // Check for ')' delimiter
+            if (!expect_token(TokenID::Punctuation, ")")) throw SyntaxError("expected ')'");
+        }
+        else {
+            with_stmt->add_node_back(expect_helper(false, TokenID::Punctuation, {","}, NodeKind::COLLECTION, &Parser::expect_with_item, &Parser::expect_with_item, Flag{false, false, true} | flags));
+        }
+        with_stmt->add_node_back(expect_token_get(true, TokenID::Operator, ":", NodeKind::FORMALITY, flags)); // Formality
+        with_stmt->add_node_back(expect_block(false, flags));
+
+        return with_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_with_item(bool get, Flag flags) {
     // with_item:
     //     | expression 'as' star_target &(',' | ')' | ':') 
     //     | expression 
-    std::unique_ptr<Node> with_item = expect_expression(get, flags);
-    if (std::unique_ptr<Node> as = expect_token_get(false, TokenID::Identifier, "as", Flag{false, true} | flags)) {
-        as->add_node_front(expect_star_target(false, flags));
-        if (!expect_token(TokenID::Punctuation, {",", ")", ":"})) throw SyntaxError("expected ',' | ')' | ':'");
-        with_item = move(as);
+    if (std::unique_ptr<Node> with_item = expect_expression(get, flags)) {
+
+        if (std::unique_ptr<Node> as = expect_token_get(false, TokenID::Identifier, "as", NodeKind::KEYWORD_CALL, Flag{false, true} | flags)) {
+            as->add_node_front(expect_star_target(false, flags));
+            if (!expect_token(TokenID::Punctuation, {",", ")", ":"})) throw SyntaxError("expected ',' | ')' | ':'");
+            with_item = move(as);
+        }
+        return with_item;
     }
-    return with_item;
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_try_stmt(bool get, Flag flags) {
     // try_stmt:
     //     | 'try' ':' block finally_block 
     //     | 'try' ':' block except_block+ [else_block] [finally_block] 
-    std::unique_ptr<Node> try_stmt =  expect_token_get(get, TokenID::Identifier, "try", flags);
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    try_stmt->add_node_back(expect_block(false, flags));
-    if (std::unique_ptr<Node> except_block = expect_except_block(false, Flag{false, true} | flags)) {
-        while (except_block != nullptr) {
-            try_stmt->add_node_back(except_block);
-            except_block = expect_except_block(false, Flag{false, true} | flags);
+    if (std::unique_ptr<Node> try_stmt =  expect_token_get(get, TokenID::Identifier, "try", NodeKind::KEYWORD_CALL, flags)) {
+
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY,flags); // Formality
+        try_stmt->add_node_back(expect_block(false, flags));
+        if (std::unique_ptr<Node> except_block = expect_except_block(false, Flag{false, true} | flags)) {
+            while (except_block != nullptr) {
+                try_stmt->add_node_back(except_block);
+                except_block = expect_except_block(false, Flag{false, true} | flags);
+            }
+            try_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
+            try_stmt->add_node_back(expect_finally_block(false, Flag{false, true} | flags));
         }
-        try_stmt->add_node_back(expect_else_block(false, Flag{false, true} | flags));
-        try_stmt->add_node_back(expect_finally_block(false, Flag{false, true} | flags));
+        else {
+            try_stmt->add_node_back(expect_finally_block(false, flags));
+        }
+        
+        return try_stmt;
     }
-    else {
-        try_stmt->add_node_back(expect_finally_block(false, flags));
-    }
-    
-    return try_stmt;
+    else if (flags.optional) return nullptr;
 }
 std::unique_ptr<Node> Parser::expect_except_block(bool get, Flag flags) {
     // except_block:
     //     | 'except' expression ['as' NAME ] ':' block
     //     | 'except' ':' block
-    std::unique_ptr<Node> except_block =  expect_token_get(false, TokenID::Identifier, "try", flags);
-    except_block->add_node_back(expect_helper(false, TokenID::Identifier, {"as"}, NodeKind::OPERATOR_CALL, &Parser::expect_expression, &Parser::expect_name, Flag{false, true, false, false, false, false, true} | flags));
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    except_block->add_node_back(expect_block(false, flags));
-    
-    return except_block;
+    if (std::unique_ptr<Node> except_block =  expect_token_get(false, TokenID::Identifier, "except", NodeKind::KEYWORD_CALL, flags)) {
+
+        except_block->add_node_back(expect_helper(false, TokenID::Identifier, {"as"}, NodeKind::OPERATOR_CALL, &Parser::expect_expression, &Parser::expect_name, Flag{false, true, false, false, false, false, true} | flags));
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        except_block->add_node_back(expect_block(false, flags));
+        
+        return except_block;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_finally_block(bool get, Flag flags) {
     // finally_block:
     //     | 'finally' ':' block
-    std::unique_ptr<Node> finally_block = expect_token_get(get, TokenID::Identifier, "finally", flags);
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    finally_block->add_node_back(expect_block(false, flags));
+    if (std::unique_ptr<Node> finally_block = expect_token_get(get, TokenID::Identifier, "finally", NodeKind::KEYWORD_CALL, flags)) {
 
-    return finally_block;
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        finally_block->add_node_back(expect_block(false, flags));
+
+        return finally_block;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_match_stmt(bool get, Flag flags) {
     // match_stmt:
     //     | "match" subject_expr ':' NEWLINE INDENT case_block+ DEDENT 
-    std::unique_ptr<Node> match_stmt = expect_token_get(get, TokenID::Identifier, "match", flags);
-    match_stmt->add_node_back(expect_subject_expr(false, flags));
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    expect_newline(false, flags); // Formality
-    expect_indent(false, flags); // Formality
+    if (std::unique_ptr<Node> match_stmt = expect_token_get(get, TokenID::Identifier, "match", NodeKind::KEYWORD_CALL, flags)) {
 
-    std::unique_ptr<Node> case_block = expect_case_block(false, flags);
-    while (case_block != nullptr) {
-        match_stmt->add_node_back(case_block);
-        case_block = expect_case_block(false, Flag{false, true} | flags);
+        match_stmt->add_node_back(expect_subject_expr(false, flags));
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        expect_newline(false, flags); // Formality
+        expect_indent(false, flags); // Formality
+
+        std::unique_ptr<Node> case_block = expect_case_block(false, flags);
+        while (case_block != nullptr) {
+            match_stmt->add_node_back(case_block);
+            case_block = expect_case_block(false, Flag{false, true} | flags);
+        }
+        expect_dedent(false, flags); // Formality
+
+        return match_stmt;
     }
-    expect_dedent(false, flags); // Formality
-
-    return match_stmt;
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_subject_expr(bool get, Flag flags) {
@@ -429,21 +473,27 @@ std::unique_ptr<Node> Parser::expect_subject_expr(bool get, Flag flags) {
 std::unique_ptr<Node> Parser::expect_case_block(bool get, Flag flags) {
     // case_block:
     //     | "case" patterns guard? ':' block 
-    std::unique_ptr<Node> case_block = expect_token_get(get, TokenID::Identifier, "case", flags);
-    case_block->add_node_back(expect_patterns(false, flags));
-    case_block->add_node_back(expect_guard(false, flags));
-    expect_token_get(false, TokenID::Punctuation, ":", flags); // Formality
-    case_block->add_node_back(expect_block(false, flags));\
+    if (std::unique_ptr<Node> case_block = expect_token_get(get, TokenID::Identifier, "case", NodeKind::KEYWORD_CALL, flags)) {
+
+        case_block->add_node_back(expect_patterns(false, flags));
+        case_block->add_node_back(expect_guard(false, flags));
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        case_block->add_node_back(expect_block(false, flags));
 
     return case_block;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_guard(bool get, Flag flags) {
     // guard: 'if' named_expression 
-    std::unique_ptr<Node> guard = expect_token_get(get, TokenID::Identifier, "if", flags);
-    guard->add_node_back(expect_named_expression(false, flags));
+    if (std::unique_ptr<Node> guard = expect_token_get(get, TokenID::Identifier, "if", NodeKind::KEYWORD_CALL, flags)) {
 
-    return guard;
+        guard->add_node_back(expect_named_expression(false, flags));
+
+        return guard;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_patterns(bool get, Flag flags) {
@@ -462,14 +512,16 @@ std::unique_ptr<Node> Parser::expect_pattern(bool get, Flag flags) {
     //     | or_pattern
     // as_pattern:
     //     | or_pattern 'as' pattern_capture_target
-    std::unique_ptr<Node> pattern = expect_or_pattern(get, flags); 
-    if (std::unique_ptr<Node> as = expect_token_get(false, TokenID::Identifier, "as", flags)) {
-        as->add_node_front(expect_pattern_capture_target(false, flags));
-        as->add_node_front(pattern);
-        pattern = move(as);
+    if (std::unique_ptr<Node> pattern = expect_or_pattern(get, flags)) { 
+        if (std::unique_ptr<Node> as = expect_token_get(false, TokenID::Identifier, "as", NodeKind::KEYWORD_CALL, flags)) {
+            as->add_node_front(expect_pattern_capture_target(false, flags));
+            as->add_node_front(pattern);
+            pattern = move(as);
+        }
+        
+        return pattern;
     }
-    
-    return pattern;
+    else if (flags.optional) return nullptr;
 }
 
 // Unnecessary
@@ -528,9 +580,9 @@ std::unique_ptr<Node> Parser::expect_literal_pattern(bool get, Flag flags) {
         return expect_signed_number(false, Flag{false, true} | flags)
                     or expect_complex_number(false, Flag{false, true} | flags)
                         or expect_strings(false, Flag{false, true} | flags)
-                            or expect_token_get(false, TokenID::Identifier, "None", Flag{false, true} | flags)
-                                or expect_capture_pattern(false, TokenID::Identifier, "True", Flag{false, true} | flags)
-                                    or expect_capture_pattern(false, TokenID::Identifier, "False", Flag{false, true} | flags);
+                            or expect_token_get(false, TokenID::Identifier, "None", NodeKind::LITERAL, Flag{false, true} | flags)
+                                or expect_capture_pattern(false, TokenID::Identifier, "True", NodeKind::LITERAL, Flag{false, true} | flags)
+                                    or expect_capture_pattern(false, TokenID::Identifier, "False", NodeKind::LITERAL, Flag{false, true} | flags);
     }
 }
 
@@ -581,16 +633,18 @@ std::unique_ptr<Node> Parser::expect_pattern_capture_target(bool get, Flag flags
 std::unique_ptr<Node> Parser::expect_wildcard_pattern(bool get, Flag flags) {
     // wildcard_pattern:
     //     | "_" 
-    return expect_token_get(get, TokenID::Punctuation, "_", flags);
+    return expect_token_get(get, TokenID::Punctuation, "_", NodeKind::LITERAL, flags);
 }
 
 std::unique_ptr<Node> Parser::expect_value_pattern(bool get, Flag flags) {
     // value_pattern:
     //     | attr !('.' | '(' | '=') 
-    std::unique_ptr<Node> value_pattern = expect_attr(get, flags);
-    if (expect_token(TokenID::Punctuation, ".") or expect_token(TokenID::Punctuation, "(") or expect_token(TokenID::Operator, "=")) throw SyntaxError("did not expect '.' | '(' | '='");
+    if (std::unique_ptr<Node> value_pattern = expect_attr(get, flags)) {
+        if (expect_token(TokenID::Punctuation, ".") or expect_token(TokenID::Punctuation, "(") or expect_token(TokenID::Operator, "=")) throw SyntaxError("did not expect '.' | '(' | '='");
 
-    return value_pattern;
+        return value_pattern;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_attr(bool get, Flag flags) {
@@ -610,13 +664,15 @@ std::unique_ptr<Node> Parser::expect_name_or_attr(bool get, Flag flags) {
 std::unique_ptr<Node> Parser::expect_group_pattern(bool get, Flag flags) {
     // group_pattern:
     //     | '(' pattern ')' 
-    std::unique_ptr<Node> group_pattern = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Punctuation, "()"});
-    expect_token_get(get, TokenID::Punctuation, "(", flags); // Formality
-    group_pattern->add_node_front(expect_pattern(false, flags));
-    // Check for ')' delimiter
-    if (!expect_token(TokenID::Punctuation, ")")) throw SyntaxError("expected ')'");
+    if (std::unique_ptr<Node> group_pattern = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Punctuation, "()"})) {
+        expect_token_get(get, TokenID::Punctuation, "(", NodeKind::FORMALITY, flags); // Formality
+        group_pattern->add_node_front(expect_pattern(false, flags));
+        // Check for ')' delimiter
+        expect_token_get(false, TokenID::Punctuation, ")", NodeKind::FORMALITY, flags);
 
-    return group_pattern;
+        return group_pattern;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_sequence_pattern(bool get, Flag flags) {
@@ -624,18 +680,19 @@ std::unique_ptr<Node> Parser::expect_sequence_pattern(bool get, Flag flags) {
     //     | '[' maybe_sequence_pattern? ']' 
     //     | '(' open_sequence_pattern? ')'
     std::unique_ptr<Node> sequence_pattern {};
-    if (expect_token_get(get, TokenID::Punctuation, {"["}, Flag{false, true} | flags)) {
+    if (expect_token_get(get, TokenID::Punctuation, "[", NodeKind::FORMALITY, Flag{false, true} | flags)) {
         sequence_pattern = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Punctuation, "[]"});
         sequence_pattern->add_node_front(expect_maybe_sequence_pattern(false, Flag{false, true} | flags));
         // Check for ']' delimiter
-        if (!expect_token(TokenID::Punctuation, "]")) throw SyntaxError("expected ')'");
+        expect_token_get(false, TokenID::Punctuation, "]", NodeKind::FORMALITY, flags);
     }
-    else if (expect_token_get(false, TokenID::Punctuation, {"("}, flags)) {
+    else if (expect_token_get(false, TokenID::Punctuation, {"("}, NodeKind::FORMALITY, flags)) {
         sequence_pattern = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Punctuation, "()"});
         sequence_pattern->add_node_front(expect_open_sequence_pattern(false, Flag{false, true} | flags));
         // Check for ')' delimiter
-        if (!expect_token(TokenID::Punctuation, ")")) throw SyntaxError("expected ')'");        
+        expect_token_get(false, TokenID::Punctuation, ")", NodeKind::FORMALITY, flags);      
     }
+    return sequence_pattern;
 }
 
 std::unique_ptr<Node> Parser::expect_open_sequence_pattern(bool get, Flag flags) { 
@@ -682,7 +739,16 @@ std::unique_ptr<Node> Parser::expect_items_pattern(bool get, Flag flags) {
 std::unique_ptr<Node> Parser::expect_key_value_pattern(bool get, Flag flags) {
     // key_value_pattern:
     //     | (literal_expr | attr) ':' pattern 
-    return 
+    if (std::unique_ptr<Node> key_value_pattern = expect_literal_pattern(get, Flag{false, true} | flags) or expect_attr(get, flags)) {
+        std::unique_ptr<Node> colon = expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags);
+        colon->add_node_front(expect_pattern(false, flags));
+
+        colon->add_node_front(key_value_pattern);
+        key_value_pattern = move(colon);
+    
+        return key_value_pattern;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_double_star_pattern(bool get, Flag flags) {
@@ -697,9 +763,32 @@ std::unique_ptr<Node> Parser::expect_class_pattern(bool get, Flag flags) {
     //     | name_or_attr '(' positional_patterns ','? ')' 
     //     | name_or_attr '(' keyword_patterns ','? ')' 
     //     | name_or_attr '(' positional_patterns ',' keyword_patterns ','? ')' 
+    if (std::unique_ptr<Node> class_pattern = expect_name_or_attr(get, flags)) {
+        expect_token_get(false, TokenID::Punctuation, "(", NodeKind::FORMALITY, flags); // Formality
+        std::unique_ptr<Node> tuple = std::make_unique<Node>(NodeKind::TUPLE, Token{TokenID::Punctuation, "()"});
+        if (std::unique_ptr<Node> keyword_patterns = expect_keyword_patterns(false, Flag {false, true} | flags)) {
+            tuple->add_node_back(keyword_patterns);
+        }
+        else if (std::unique_ptr<Node> positional_patterns = expect_positional_patterns(false, flags)) {
+            if (std::unique_ptr<Node> collection = expect_token_get(false, TokenID::Punctuation, ",", NodeKind::COLLECTION, Flag{false, true} | flags)) {
+                collection->add_node_front(expect_keyword_patterns(false, Flag{false, true} | flags));
+                collection->add_node_front(positional_patterns);
+                positional_patterns = move(collection);
+            }
+            expect_token_get(false, TokenID::Punctuation, ",", NodeKind::FORMALITY, Flag{false, true} | flags); // Formality
+            tuple->add_node_front(positional_patterns);
+        }
+
+        // Check for ')' delimiter
+        expect_token_get(false, TokenID::Punctuation, ")", NodeKind::FORMALITY, flags);
+
+        class_pattern->add_node_back(tuple);
+        return class_pattern;
+    }
+    else if (flags.optional) return nullptr;
 }
 
-std::unique_ptr<Node> Parser::expect_positional_pattern(bool get, Flag flags) {
+std::unique_ptr<Node> Parser::expect_positional_patterns(bool get, Flag flags) {
     // positional_patterns:
     //     | ','.pattern+ 
     return expect_helper(get, TokenID::Operator, {","}, NodeKind::COLLECTION, &Parser::expect_pattern, &Parser::expect_pattern, flags);
@@ -713,50 +802,99 @@ std::unique_ptr<Node> Parser::expect_keyword_patterns(bool get, Flag flags) {
 
 std::unique_ptr<Node> Parser::expect_keyword_pattern(bool get, Flag flags) {
     // keyword_pattern:
-    //     | NAME '=' pattern 
+    //     | NAME '=' pattern
+    return expect_helper(get, TokenID::Operator, {"="}, NodeKind::OPERATOR_CALL, &Parser::expect_name, &Parser::expect_pattern, flags);
 }
 
 std::unique_ptr<Node> Parser::return_stmt(bool get, Flag flags) {
     // return_stmt:
     //     | 'return' [star_expressions]
-    std::unique_ptr<Node> return_stmt = expect_token_get(get, TokenID::Identifier, "return", flags);
-    return_stmt->add_node_back(expect_star_expressionf(false, Flag{false, true} | flags)); 
-    return return_stmt;
+    if (std::unique_ptr<Node> return_stmt = expect_token_get(get, TokenID::Identifier, "return", NodeKind::KEYWORD_CALL, flags)) {
+        return_stmt->add_node_back(expect_star_expression(false, Flag{false, true} | flags)); 
+        return return_stmt;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_raise_stmt(bool get, Flag flags) {
     // raise_stmt:
     //     | 'raise' expression ['from' expression ] 
     //     | 'raise' 
-    std::unique_ptr<Node> raise_stmt = expect_token_get(get, TokenID::Identifier, "raise", flags);
-    if (std::unique_ptr<Node> expression = expect_expression(false, Flag{false, true} | flags)) {
-        if (expect_token(TokenID::Identifier, "from")) {
-            std::unique_ptr<Node> from = expect_token_get(false, expressions)
+    if (std::unique_ptr<Node> raise_stmt = expect_token_get(get, TokenID::Identifier, "raise", NodeKind::KEYWORD_CALL, flags)) {
+        if (std::unique_ptr<Node> expression = expect_expression(false, Flag{false, true} | flags)) {
+            if (std::unique_ptr<Node> from = expect_token_get(false, TokenID::Identifier, "from", NodeKind::KEYWORD_CALL, Flag{false, true} | flags)) {
+                from->add_node_front(expression);
+                from->add_node_front(expect_expression(false, flags));
+                expression = move(from);
+            }
+            raise_stmt->add_node_front(expression);
         }
+        return raise_stmt;
     }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_function_def(bool get, Flag flags) {
     // function_def:
     //     | decorators function_def_raw 
     //     | function_def_raw
+    if (std::unique_ptr<Node> function_def = expect_decorators(get, Flag{false, true} | flags);) {
+        function_def->add_node_front(expect_function_def_raw(false, flags));
+        return function_def;
+    }
+    else return expect_function_def_raw(false, flags);
 }
 
 std::unique_ptr<Node> Parser::expect_function_def_raw(bool get, Flag flags) {
     // function_def_raw:
     //     | 'def' NAME '(' [params] ')' ['->' expression ] ':' [func_type_comment] block 
-    //     | ASYNC 'def' NAME '(' [params] ')' ['->' expression ] ':' [func_type_comment] block 
+    //     | ASYNC 'def' NAME '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
+    if (std::unique_ptr<Node> function_def_raw = expect_token_get(get, TokenID::Identifier, "def", NodeKind::FUNCTION_DEF, flags)) {
+        function_def_raw->add_node_back(expect_name(false, flags));
+        
+        std::unique_ptr<Node> tuple = std::make_unique<Node>(NodeKind::TUPLE, Token{TokenID::Punctuation, "()"});
+        expect_token_get(false, TokenID::Identifier, "(", NodeKind::FORMALITY, flags); // Formality
+        tuple->add_node_back(expect_params(false, Flag{false, true} | flags));
+        // Check for ')' delimiter
+        expect_token_get(false, TokenID::Punctuation, ")", NodeKind::FORMALITY, flags);
+        function_def_raw->add_node_back(tuple);
+        
+        // Annotation
+        if (expect_token_get(false, TokenID::Punctuation, "->", NodeKind::FORMALITY, Flag {false, true} | flags)) {
+            expect_expression(false, flags); // expect an expression
+        }
+
+        // Function body
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags); // Formality
+        expect_func_type_comment(false, Flag{false, true} | flags); // Optional
+
+        function_def_raw->add_node_back(expect_block(false, falgs));
+
+        return function_def_raw;
+    }   
+    else if (flags.optional) return nullptr;    
 }
 
 std::unique_ptr<Node> Parser::expect_func_type_comment(bool get, Flag flags) {
     // func_type_comment:
     //     | NEWLINE TYPE_COMMENT &(NEWLINE INDENT)   # Must be followed by indented block
     //     | TYPE_COMMENT
+
+    if (expect_indent(get, Flag{false, true} | flags)) {
+        std::unique_ptr<Node> func_type_comment = expect_type_comment(false, flags);
+        expect_newline(false, flags);
+        expect_indent(false, flags);
+        return func_type_comment;
+    }
+    else {
+        return expect_type_comment(false, flags);
+    }
 }
 
 std::unique_ptr<Node> Parser::expect_params(bool get, Flag flags) {
     // params:
     //     | parameters
+    return expect_parameters(get, flags);
 }
 
 std::unique_ptr<Node> Parser::expect_parameters(bool get, Flag flags) {
@@ -766,6 +904,46 @@ std::unique_ptr<Node> Parser::expect_parameters(bool get, Flag flags) {
     //     | param_no_default+ param_with_default* [star_etc] 
     //     | param_with_default+ [star_etc] 
     //     | star_etc 
+    std::unique_ptr<Node> parameters = std::make_unique<Node>(NodeKind::PARAMETERS, Token{TokenID::Identifier, "PARAMETERS"});
+    if (std::unique_ptr<Node> slash_no_default = expect_slash_no_default(get, Flag{false, true} | flags)) {
+        parameters->add_node_back(slash_no_default);
+        while (std::unique_ptr<Node> param_no_default = expect_param_no_default(false, Flag{false, true} | flags)) {
+            parameters->add_node_back(param_no_default);
+        }
+        while (std::unique_ptr<Node> param_with_default = expect_param_with_default(false, Flag{false, true} | flags)) {
+            parameters->add_node_back(param_with_default);
+        }
+        parameters->add_node_back(expect_star_etc(false, Flag{false, true} | flags));
+    }
+    else if (std::unique_ptr<Node> slash_with_default = expect_slash_with_default(get, Flag{false, true} | flags)) {
+        parameters->add_node_back(slash_with_default);
+        while (std::unique_ptr<Node> param_with_default = expect_param_with_default(false, Flag{false, true} | flags)) {
+            parameters->add_node_back(param_with_default);
+        }
+        parameters->add_node_back(expect_star_etc(false, Flag{false, true} | flags));
+    }
+    else if (std::unique_ptr<Node> param_no_default = expect_param_no_default(get, Flag{false, true} | flags)) {
+        parameters->add_node_back(param_no_default);
+        while (std::unique_ptr<Node> param_no_default = expect_param_with_default(false, Flag{false, true} | flags)) {
+            parameters->add_node_back(param_no_default);
+        }
+        while (std::unique_ptr<Node> param_with_default = expect_param_with_default(false, Flag{false, true} | flags)) {
+            parameters->add_node_back(param_with_default);
+        }
+        parameters->add_node_back(expect_star_etc(false, Flag{false, true} | flags));
+    }
+    else if (std::unique_ptr<Node> param_with_default = expect_param_with_default(get, Flag{false, true} | flags)) {
+        parameters->add_node_back(param_with_default);
+        while (std::unique_ptr<Node> param_with_default = expect_param_with_default(false, Flag{false, true} | flags)) {
+            parameters->add_node_back(param_with_default);
+        }
+        parameters->add_node_back(expect_star_etc(false, Flag{false, true} | flags));
+    }
+    else {
+        parameters->add_node_back(expect_star_etc(false, flags));
+    }
+    
+    return parameters;
 }
 
 // # Some duplication here because we can't write (',' | &')'),
@@ -774,13 +952,36 @@ std::unique_ptr<Node> Parser::expect_parameters(bool get, Flag flags) {
 std::unique_ptr<Node> Parser::expect_slash_no_default(bool get, Flag flags) {
     // slash_no_default:
     //     | param_no_default+ '/' ',' 
-    //     | param_no_default+ '/' &')
+    //     | param_no_default+ '/' &')'
+    std::unique_ptr<Node> slash_no_default = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Identifier, "slash_no_default"});
+    slash_no_default->add_node_back(expect_param_no_default(get, flags));
+    while (std::unique_ptr<Node> param_no_default = expect_param_no_default(false, Flag{false, true} | flags)) {
+        slash_no_default->add_node_back(param_no_default);
+    }
+    expect_token_get(false, TokenID::Punctuation, "/", flags); // Formality
+    expect_token_get(false, TokenID::Punctuation, ",", flags); // Formality
+
+    return slash_no_default;
 }
 
 std::unique_ptr<Node> Parser::expect_slash_with_default(bool get, Flag flags) {
     // slash_with_default:
     //     | param_no_default* param_with_default+ '/' ',' 
     //     | param_no_default* param_with_default+ '/' &')' 
+    std::unique_ptr<Node> slash_with_default = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Identifier, "slash_with_default"});
+    while (std::unique_ptr<Node> param_no_default = expect_param_no_default(get, Flag{false, true} | flags)) {
+        slash_with_default->add_node_back(param_no_default);
+        get = false;
+    }
+    slash_with_default->add_node_back(expect_param_with_default(false, flags));
+    while (std::unique_ptr<Node> param_with_default = expect_param_no_default(false, Flag{false, true} | flags)) {
+        slash_with_default->add_node_back(param_with_default);
+    }
+
+    expect_token_get(false, TokenID::Punctuation, "/", flags); // Formality
+    expect_token_get(false, TokenID::Punctuation, ",", flags); // Formality
+
+    return slash_with_default;
 }
 
 std::unique_ptr<Node> Parser::expect_star_etc(bool get, Flag flags) {
@@ -788,10 +989,35 @@ std::unique_ptr<Node> Parser::expect_star_etc(bool get, Flag flags) {
     //     | '*' param_no_default param_maybe_default* [kwds] 
     //     | '*' ',' param_maybe_default+ [kwds] 
     //     | kwds 
+    std::unique_ptr<Node> star_etc = std::make_unique<Node>(NodeKind::COLLECTION, Token{TokenID::Identifier, "star_etc"});
+    if (expect_token_get(get, TokenID::Operator, "*", flags)) {
+        if (std::unique_ptr<Node> param_no_default = expect_param_no_default(false, Flag{false, true})) {
+            star_etc->add_node_back(param_no_default); 
+            while (std::unique_ptr<Node> param_maybe_default = expect_param_maybe_default(false, Flag{false, true})) {
+                star_etc->add_node_back(param_maybe_default);
+            }
+            star_etc->add_node_back(expect_kwds(false, Flag{false, true} | flags));
+        }
+        else if (expect_token_get(false, TokenID::Punctuation, ",", flags)) {
+            star_etc->add_node_back(expect_param_maybe_default(false, flags)); 
+            while (std::unique_ptr<Node> param_maybe_default = expect_param_maybe_default(false, Flag{false, true})) {
+                star_etc->add_node_back(param_maybe_default);
+            }
+            star_etc->add_node_back(expect_kwds(false, Flag{false, true} | flags));
+        }
+        return star_etc;
+    }
+    else {
+        return expect_kwds(false, flags);
+    }
 }
 
 std::unique_ptr<Node> Parser::expect_kwds(bool get, Flag flags) {
-    // kwds: '**' param_no_default 
+    // kwds: '**' param_no_default
+    std::unique_ptr<Node> kwds = expect_token_get(get, TokenID::Operator, "**", flags);
+    kwds->add_node_back(expect_param_no_default(false, flags));
+
+    return kwds; 
 }
 
 // # One parameter.  This *includes* a following comma and type comment.
@@ -811,48 +1037,120 @@ std::unique_ptr<Node> Parser::expect_param_no_default(bool get, Flag flags) {
     // param_no_default:
     //     | param ',' TYPE_COMMENT? 
     //     | param TYPE_COMMENT? &')' 
+    std::unique_ptr<Node> param_no_default = expect_param(get, flags);
+    if (expect_token_get(false, TokenID::Punctuation, ",", Flag{false, true} | flags)) {
+        expect_type_comment(false, Flag{false, true} | flags);
+    }
+    else {
+        expect_type_comment(false, Flag{false, true} | flags);
+        expect_token_get(false, TokenID::Punctuation, ")", flags);
+    }
+    return param_no_default;
 }
 
 std::unique_ptr<Node> Parser::expect_param_with_default(bool get, Flag flags) {
     // param_with_default:
     //     | param default ',' TYPE_COMMENT? 
     //     | param default TYPE_COMMENT? &')' 
+    std::unique_ptr<Node> param_with_default = expect_param(get, flags);
+    param_with_default->add_node_back(expect_default(false, flags));
+    if (expect_token_get(false, TokenID::Punctuation, ",", Flag{false, true} | flags)) {
+        expect_type_comment(false, Flag{false, true} | flags);
+    }
+    else {
+        expect_type_comment(false, Flag{false, true} | flags);
+        expect_token_get(false, TokenID::Punctuation, ")", flags);
+    }
+    return param_with_default;
 }
 
 std::unique_ptr<Node> Parser::expect_param_maybe_default(bool get, Flag flags) {
     // param_maybe_default:
     //     | param default? ',' TYPE_COMMENT? 
     //     | param default? TYPE_COMMENT? &')' 
+    std::unique_ptr<Node> param_maybe_default = expect_param(get, flags);
+    param_maybe_default->add_node_back(expect_default(false, Flag{false, true} | flags));
+    if (expect_token_get(false, TokenID::Punctuation, ",", Flag{false, true} | flags)) {
+        expect_type_comment(false, Flag{false, true} | flags);
+    }
+    else {
+        expect_type_comment(false, Flag{false, true} | flags);
+        expect_token_get(false, TokenID::Punctuation, ")", flags);
+    }
+    return param_maybe_default;
 }
 
 std::unique_ptr<Node> Parser::expect_param(bool get, Flag flags) {
     // param: NAME annotation? 
+    std::unique_ptr<Node> param = expect_name(get, flags);
+    param->add_node_back(expect_annotation(false, Flag{false, true} | flags));
 }
 
 std::unique_ptr<Node> Parser::expect_annotation(bool get, Flag flags) {
-    // annotation: ':' expression 
-    // default: '=' expression 
+    // annotation: ':' expression
+    std::unique_ptr<Node> annotation = expect_token_get(get, TokenID::Punctuation, ":", flags);
+    annotation->add_node_back(expect_expression(false, flags));
+
+    return annotation;
+}
+
+std::unique_ptr<Node> Parser::expect_default(bool get, Flag flags) {
+    // default: '=' expression
+    std::unique_ptr<Node> default_ = expect_token_get(get, TokenID::Operator, "=", flags);
+    default_->add_node_back(expect_expression(false, flags));
+
+    return default_;
 }
 
 std::unique_ptr<Node> Parser::expect_decorators(bool get, Flag flags) {
     // decorators: ('@' named_expression NEWLINE )+ 
+    if (std::unique_ptr<Node> )
 }
 
 std::unique_ptr<Node> Parser::expect_class_def(bool get, Flag flags) {
     // class_def:
     //     | decorators class_def_raw 
     //     | class_def_raw
+    if (std::unique_ptr<Node> class_def = expect_decorators(get, Flag{false, true} | flags)) {
+        class_def->add_node_front(expect_class_def_raw(false, flags));
+        return class_def;
+    }
+    else return expect_class_def_raw(false, flags);
 }
 
-std::unique_ptr<Node> Parser::expect_class_def(bool get, Flag flags) {
+std::unique_ptr<Node> Parser::expect_class_def_raw(bool get, Flag flags) {
     // class_def_raw:
-    //     | 'class' NAME ['(' [arguments] ')' ] ':' block 
+    //     | 'class' NAME ['(' [arguments] ')' ] ':' block
+    if (std::unique_ptr<Node> class_def_raw = expect_token_get(get, TokenID::Identifier, "class", NodeKind::CLASS_DEF, flags)) {
+        class_def_raw->add_node_back(expect_name(false, flags));
+        
+        if (expect_token_get(false, TokenID::Punctuation, "(", NodeKind::FORMALITY, Flag{false, true} | flags)) {
+            std::unique_ptr<Node> tuple = std::make_unique<Node>(NodeKind::TUPLE, Token{TokenID::Punctuation, "()"});
+            tuple->add_node_back(expect_arguments(get, Flag{false, true} | flags));
+            class_def_raw->add_node_back(tuple);
+            // expect ')' delimiter
+            expect_token_get(false, TokenID::Punctuation, ")", NodeKind::FORMALITY, flags);
+        }
+
+        expect_token_get(false, TokenID::Punctuation, ":", NodeKind::FORMALITY, flags);
+        class_def_raw->add_node_back(expect_block(false, flags));
+
+        return class_def_raw;
+    }
+    else if (flags.optional) return nullptr;
 }
 
 std::unique_ptr<Node> Parser::expect_block(bool get, Flag flags) {
     // block:
     //     | NEWLINE INDENT statements DEDENT 
     //     | simple_stmts
+    if (expect_newline(get, Flag{false, true} | flags)) {
+        expect_indent(false, flags);
+        std::unique_ptr<Node> statements = expect_statements(false, flags);
+        expect_dedent(false, flags);
+        return statements;
+    }
+    else return expect_function_def_raw(false, flags);
 }
 
 std::unique_ptr<Node> Parser::expect_star_expressions(bool get, Flag flags) {
@@ -908,6 +1206,95 @@ std::unique_ptr<Node> Parser::expect_expression(bool get, Flag flags) {
     //     | lambdef
     // TO BE FINISHED
     return expect_disjunction(get, flags);
+}
+
+std::unique_ptr<Node> expect_lambdef(bool get, Flag flags) {
+    // lambdef:
+    //     | 'lambda' [lambda_params] ':' expression 
+}
+
+std::unique_ptr<Node> expect_lambdef(bool get, Flag flags) {
+    // lambda_params:
+    //     | lambda_parameters
+
+    // # lambda_parameters etc. duplicates parameters but without annotations
+    // # or type comments, and if there's no comma after a parameter, we expect
+    // # a colon, not a close parenthesis.  (For more, see parameters above.)
+    // #
+    return expect_lambda_parameters(get, flags);
+}
+
+std::unique_ptr<Node> expect_lambda_parameters(bool get, Flag flags) {
+    // lambda_parameters:
+    //     | lambda_slash_no_default lambda_param_no_default* lambda_param_with_default* [lambda_star_etc] 
+    //     | lambda_slash_with_default lambda_param_with_default* [lambda_star_etc] 
+    //     | lambda_param_no_default+ lambda_param_with_default* [lambda_star_etc] 
+    //     | lambda_param_with_default+ [lambda_star_etc] 
+    //     | lambda_star_etc 
+}
+
+std::unique_ptr<Node> expect_lambda_slash_no_default(bool get, Flag flags) {
+    // lambda_slash_no_default:
+    //     | lambda_param_no_default+ '/' ',' 
+    //     | lambda_param_no_default+ '/' &':' 
+}
+
+std::unique_ptr<Node> expect_lambda_slash_with_default(bool get, Flag flags) {
+    // lambda_slash_with_default:
+    //     | lambda_param_no_default* lambda_param_with_default+ '/' ',' 
+    //     | lambda_param_no_default* lambda_param_with_default+ '/' &':' 
+}
+
+std::unique_ptr<Node> expect_lambda_star_etc(bool get, Flag flags) {
+    // lambda_star_etc:
+    //     | '*' lambda_param_no_default lambda_param_maybe_default* [lambda_kwds] 
+    //     | '*' ',' lambda_param_maybe_default+ [lambda_kwds] 
+    //     | lambda_kwds 
+}
+
+std::unique_ptr<Node> expect_lambda_kwds(bool get, Flag flags) {
+    // lambda_kwds: '**' lambda_param_no_default 
+    std::unique_ptr<Node> lambda_kwds = expect_token_get(get, TokenID::Operator, "**", flags);
+    lambda_kwds->add_node_back(expect_lambda_param_no_default(false, flags));
+
+    return lambda_kwds; 
+}
+
+std::unique_ptr<Node> expect_lambda_param_no_default(bool get, Flag flags) {
+    // lambda_param_no_default:
+    //     | lambda_param ',' 
+    //     | lambda_param &':' 
+    std::unique_ptr<Node> lambda_param_no_default = expect_lambda_param(get, flags);
+    expect_token_get(false, TokenID::Punctuation, ",", Flag{false, true} | flags) or expect_token_get(false, TokenID::Punctuation, ":", flags);
+
+    return lambda_param_no_default;
+}
+
+std::unique_ptr<Node> expect_lambda_param_with_default(bool get, Flag flags) {
+    // lambda_param_with_default:
+    //     | lambda_param default ',' 
+    //     | lambda_param default &':' 
+    std::unique_ptr<Node> lambda_param_with_default = expect_lambda_param(get, flags);
+    lambda_param_with_default->add_node_back(expect_default(false, Flag{false, true} | flags));
+    expect_token_get(false, TokenID::Punctuation, ",", Flag{false, true} | flags) or expect_token_get(false, TokenID::Punctuation, ":", flags);
+
+    return lambda_param_with_default;
+}
+
+std::unique_ptr<Node> expect_lambda_param_maybe_default(bool get, Flag flags) {
+    // lambda_param_maybe_default:
+    //     | lambda_param default? ',' 
+    //     | lambda_param default? &':' 
+    std::unique_ptr<Node> lambda_param_maybe_default = expect_lambda_param(get, flags);
+    lambda_param_maybe_default->add_node_back(expect_default(false, Flag{false, true} | flags));
+    expect_token_get(false, TokenID::Punctuation, ",", Flag{false, true} | flags) or expect_token_get(false, TokenID::Punctuation, ":", flags);
+
+    return lambda_param_maybe_default;
+}
+
+std::unique_ptr<Node> expect_lambda_param(bool get, Flag flags) {
+    // lambda_param: NAME 
+    return expect_name(get, flags);
 }
 
 std::unique_ptr<Node> Parser::expect_disjunction(bool get, Flag flags) {
@@ -1110,19 +1497,18 @@ std::unique_ptr<Node> Parser::expect_atomic(bool get, Flag flags) {
         ts.get();
     }
 
-    const Token& current_token = ts.peek(); 
     std::unique_ptr<Node> atom = nullptr;
-    if (expect_token(current_token, TokenID::Integer) \
-            or expect_token(current_token, TokenID::Float)
-                or expect_token(current_token, TokenID::String))
-        atom = std::make_unique<Node>(NodeKind::LITERAL, current_token);
-    else if (expect_token(current_token, TokenID::Identifier))
-        atom = std::make_unique<Node>(NodeKind::NAME, current_token);
-    else if (expect_token(current_token, TokenID::Punctuation, {"("}))
+    if (expect_token(TokenID::Integer) \
+            or expect_token(TokenID::Float)
+                or expect_token(TokenID::String))
+        atom = std::make_unique<Node>(NodeKind::LITERAL, ts.peek());
+    else if (expect_token(TokenID::Identifier))
+        atom = std::make_unique<Node>(NodeKind::NAME, ts.peek());
+    else if (expect_token(TokenID::Punctuation, {"("}))
         atom = handle_parentheses(true, flags);
-    else if (expect_token(current_token, TokenID::Punctuation, {"{"}))
+    else if (expect_token(TokenID::Punctuation, {"{"}))
         atom = handle_angled_brackets(true, flags);
-    else if (expect_token(current_token, TokenID::Punctuation, {"["}))
+    else if (expect_token(TokenID::Punctuation, {"["}))
         atom = handle_square_brackets(true, flags);
     else
         return atom;
@@ -1171,7 +1557,7 @@ std::unique_ptr<Node> Parser::handle_square_brackets(bool get, Flag flags) {
     // Check for ']' delimiter
     if (expect_token(TokenID::Punctuation, "]")) return sqr_expr;
     // Must have delimiter, or else throw syntax error
-    else throw SyntaxError();
+    else throw SyntaxError("expected ']'");
 }
 
 std::unique_ptr<Node> Parser::handle_parentheses(bool get, Flag flags) {
@@ -1212,7 +1598,7 @@ std::unique_ptr<Node> Parser::handle_parentheses(bool get, Flag flags) {
     // Check for ')' delimiter
     if (expect_token(TokenID::Punctuation, ")")) return par_expr;
     // Must have delimiter, or else throw syntax error
-    else throw SyntaxError();
+    else throw SyntaxError("expected ')'");
 }
 
 std::unique_ptr<Node> Parser::handle_angled_brackets(bool get, Flag flags) {
@@ -1270,7 +1656,7 @@ std::unique_ptr<Node> Parser::handle_angled_brackets(bool get, Flag flags) {
     // Check for '}' delimiter
     if (expect_token(TokenID::Punctuation, "}")) return ang_expr;
     // Must have delimiter, or else throw syntax error
-    else throw SyntaxError();
+    else throw SyntaxError("expected '}'");
 }
 
 
@@ -1368,12 +1754,11 @@ std::unique_ptr<Node> Parser::expect_helper(bool get,
     else if (get) ts.get();
 
     while (true) {
-        const Token& current_token = ts.peek();
-        if (expect_token(current_token, TokenID::WhiteSpace)) {
+        if (expect_token(TokenID::WhiteSpace)) {
             ts.get();
         }
-        else if (expect_token(current_token, id, exp_v)) {
-            if (flags.right_restricted) throw SyntaxError();
+        else if (expect_token(id, exp_v)) {
+            if (flags.right_restricted) throw SyntaxError("did not expect right expression");
             flags.oper_required = false;
 
             std::unique_ptr<Node> new_left_val = std::make_unique<Node> (kind, current_token);
@@ -1389,11 +1774,11 @@ std::unique_ptr<Node> Parser::expect_helper(bool get,
         }
         else {
             if (flags.optional and flags.oper_required and flags.left_found) return nullptr;
-            if (flags.oper_required) throw SyntaxError();
+            if (flags.oper_required) throw SyntaxError("did not expect operator");
     
             if (flags.recursive) left_val = (this->*left)(false, {false, flags.optional});
             if (!flags.optional and left_val == nullptr) {
-                throw SyntaxError();
+                throw SyntaxError("expected (helper)");
             }
             else
                 return left_val;
@@ -1401,7 +1786,36 @@ std::unique_ptr<Node> Parser::expect_helper(bool get,
     }
 }
 
-bool Parser::expect_token(const Token& tok, TokenID id, std::initializer_list<std::string> exp_v) {
+std::unique_ptr<Node> Parser::expect_token_get(bool get, TokenID id, std::string s, NodeKind kind, Flag flags) {
+    if (get) ts.get();
+
+    if (expect_token(id, s)) {
+        return std::make_unique<Node>(kind, Token{id, s});
+    }
+    else {
+        if (flags.optional) return nullptr;
+        else throw SyntaxError("expected " + s);
+    }
+}
+
+std::unique_ptr<Node> Parser::expect_token_get(bool get, TokenID id, std::initializer_list<std::string> exp_v, NodeKind kind, Flag flags) {
+    if (get) ts.get();
+
+    for (auto s: exp_v) {
+        if (expect_token(id, s)) return std::make_unique<Node>(kind, Token{id, s});
+    }
+    if (flags.optional) return nullptr;
+    else {
+        std::string err_message = "expected ";
+        for (auto s: exp_v) {
+            err_message += s + " | ";
+        }
+        throw SyntaxError(err_message);
+    }
+}
+
+bool Parser::expect_token(TokenID id, std::initializer_list<std::string> exp_v) {
+    const Token& tok = ts.peek();
     for (auto s : exp_v) {
         if ((tok.string_value == s)) return expect_token(tok, id);
     }
@@ -1410,22 +1824,10 @@ bool Parser::expect_token(const Token& tok, TokenID id, std::initializer_list<st
 
 bool Parser::expect_token(TokenID id, std::string s) {
     const Token& tok = ts.peek();
-    return expect_token(tok, id) and tok.string_value == s;
+    return expect_token(id) and tok.string_value == s;
 }
 
 bool Parser::expect_token(TokenID id) {
     const Token& tok = ts.peek();
-    return expect_token(tok, id);
-}
-
-bool Parser::expect_token(const Token& tok, TokenID id) {
-    return tok.id == id;
-}
-
-bool Parser::expect_node(const std::unique_ptr<Node>& node, NodeKind kind, std::string s) {
-    return expect_node(node, kind) and (node->tok.string_value == s);
-}
-
-bool Parser::expect_node(const std::unique_ptr<Node>& node, NodeKind kind) {
-    return (node->kind == kind);
+    return expect_token(id);
 }

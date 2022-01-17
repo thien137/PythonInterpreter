@@ -5,7 +5,11 @@
 // AST 
 
 enum class NodeKind {
-    BLOCK, LITERAL, COLLECTION, PAIR, COMPREHENSION, TUPLE, LIST, SET, DICT, NAME, FUNCTION_CALL, OPERATOR_CALL, ATTRIBUTE_CALL
+    BLOCK, LITERAL, COLLECTION, PAIR, 
+    COMPREHENSION, TUPLE, LIST, SET, DICT, NAME, 
+    FUNCTION_CALL, OPERATOR_CALL, ATTRIBUTE_CALL, 
+    KEYWORD_CALL, FUNCTION_DEF, PARAMETERS,
+    CLASS_DEF, FORMALITY
 };
 
 struct Node {
@@ -40,7 +44,11 @@ class Parser {
         TokenStream ts;
 
         // helpers
+        std::unique_ptr<Node> expect_statements(bool, Flag = {});
+        // statements: statement+ 
+        
         std::unique_ptr<Node> expect_statement(bool, Flag = {});
+        // statement: compound_stmt  | simple_stmts 
 
         std::unique_ptr<Node> expect_simplestatements(bool, Flag = {});
         // simple_stmts:
@@ -358,7 +366,7 @@ class Parser {
         //     | name_or_attr '(' keyword_patterns ','? ')' 
         //     | name_or_attr '(' positional_patterns ',' keyword_patterns ','? ')' 
 
-        std::unique_ptr<Node> expect_positional_pattern(bool, Flag = {});
+        std::unique_ptr<Node> expect_positional_patterns(bool, Flag = {});
         // positional_patterns:
         //     | ','.pattern+ 
 
@@ -459,7 +467,9 @@ class Parser {
         // param: NAME annotation? 
 
         std::unique_ptr<Node> expect_annotation(bool, Flag = {});
-        // annotation: ':' expression 
+        // annotation: ':' expression
+
+        std::unique_ptr<Node> expect_default(bool, Flag = {});
         // default: '=' expression 
         
         std::unique_ptr<Node> expect_decorators(bool, Flag = {});
@@ -470,7 +480,7 @@ class Parser {
         //     | decorators class_def_raw 
         //     | class_def_raw
 
-        std::unique_ptr<Node> expect_class_def(bool, Flag = {});
+        std::unique_ptr<Node> expect_class_def_raw(bool, Flag = {});
         // class_def_raw:
         //     | 'class' NAME ['(' [arguments] ')' ] ':' block 
 
@@ -868,7 +878,10 @@ class Parser {
 
         std::unique_ptr<Node> expect_number(bool, Flag = {});
         // NUMBER
-    
+
+        std::unique_ptr<Node> expect_type_comment(bool, FLag = {});
+        // TYPE_COMMENT
+
         // helpers for helpers
         
         //expect certain kinds of identifier tokens
@@ -879,13 +892,12 @@ class Parser {
                                             std::unique_ptr<Node> (Parser::*)(bool, Flag), 
                                             Flag = {});
         
-        std::unique_ptr<Node> expect_token_get(bool, TokenID, std::string, Flag);
-        std::unique_ptr<Node> expect_token_get(bool, TokenID, std::initializer_list<std::string>, Flag); 
+        std::unique_ptr<Node> expect_token_get(bool, TokenID, std::string, NodeKind, Flag);
+        std::unique_ptr<Node> expect_token_get(bool, TokenID, std::initializer_list<std::string>, NodeKind, Flag); 
 
-        bool expect_token(const Token&, TokenID, std::initializer_list<std::string>);
+        bool expect_token(TokenID, std::initializer_list<std::string>);
         bool expect_token(TokenID, std::string);
         bool expect_token(TokenID);
-        bool expect_token(const Token&, TokenID);
         bool expect_node(const std::unique_ptr<Node>&, NodeKind, std::string);
         bool expect_node(const std::unique_ptr<Node>&, NodeKind);
         NodeKind token_to_nodekind(const Token&);

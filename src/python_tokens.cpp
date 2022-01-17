@@ -142,6 +142,13 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
                 }
             case '+':
             case '-':
+                if (pilot == '-' and line_stream.peek() == '>') {
+                    string_result += pilot;
+                    line_stream.get(pilot);
+                    string_result += pilot;
+                    line_buf.push_back({TokenID::Punctuation, string_result, character_position});
+                    break;
+                }
             case '&':
             case '|':
             case '%':
@@ -154,7 +161,7 @@ const std::deque<Token>& TokenStream::tokenize_next_line(bool continuation) {
                     string_result += pilot;
                 }
                 else if (pilot == ':') {
-                    line_buf.push_back(TokenID::Punctuation, string_result, character_position);
+                    line_buf.push_back({TokenID::Punctuation, string_result, character_position});
                 }
                 line_buf.push_back({TokenID::Operator, string_result, character_position});
                 break;
